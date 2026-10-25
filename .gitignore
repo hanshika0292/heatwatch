@@ -1,0 +1,39 @@
+# Build output (build.sh writes build/HeatWatch.app)
+build/
+*.app
+*.dSYM/
+*.dSYM.zip
+
+# Xcode
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.xcarchive
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# macOS
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+
+# HeatWatch data, in case HEATWATCH_DATA_DIR points inside the repo.
+# Generated reports embed the machine model and the local log path.
+logs/
+reports/
+heat-report-*.html
+*.csv
+*.log
+
+# Signing and notarization material
+*.p12
+*.cer
+*.mobileprovision
+*.provisionprofile
+.env
