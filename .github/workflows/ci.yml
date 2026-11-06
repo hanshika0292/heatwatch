@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (universal) and smoke test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: swiftc --version
+
+      - name: Build HeatWatch.app (arm64 + x86_64)
+        run: ./build.sh
+
+      - name: Check the bundle
+        run: |
+          APP=build/HeatWatch.app
+          lipo -archs "$APP/Contents/MacOS/HeatWatch" | grep -q arm64
+          lipo -archs "$APP/Contents/MacOS/HeatWatch" | grep -q x86_64
+          test -f "$APP/Contents/Resources/report.html"
+          test -f "$APP/Contents/Resources/LICENSE"
+          test -f "$APP/Contents/Resources/THIRD_PARTY_NOTICES.md"
+          plutil -lint Info.plist
+          codesign --verify --verbose "$APP"
+
+      - name: Sensor probe runs (CI machines may report no sensors)
+        run: build/HeatWatch.app/Contents/MacOS/HeatWatch --probe
+
+      - name: Report builds from a sample log
+        run: |
+          export HEATWATCH_DATA_DIR="$RUNNER_TEMP/heatwatch"
+          mkdir -p "$HEATWATCH_DATA_DIR/logs"
+          LOG="$HEATWATCH_DATA_DIR/logs/2026-01-15.csv"
+          echo "time,cpu,cpu_peak,cpu_prox,gpu,chipset,battery,palm_rest,fan,fan_target,fan_min,fan_max,load,speed_limit,thermal_state,on_ac,cooling_pad,top_processes,pressure" > "$LOG"
+          for m in 0 1 2 3 4 5 6 7 8 9; do
+            echo "09:$m$m:00,45.$m,47.$m,,42.0,,33.0,32.0,2317.0,2317.0,2317.0,7826.0,8.0,100,0,1,0,,0" >> "$LOG"
+          done
+          build/HeatWatch.app/Contents/MacOS/HeatWatch --report 2026-01-15 --no-open
+          grep -q '"today"' "$HEATWATCH_DATA_DIR/reports/heat-report-2026-01-15.html"
