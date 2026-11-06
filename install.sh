@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Hanshika Gupta. See LICENSE.
 # Builds HeatWatch, installs it to ~/Applications and starts it now and at every login.
 set -euo pipefail
 cd "$(dirname "$0")"
