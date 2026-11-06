@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Hanshika Gupta. See LICENSE.
 # Stops HeatWatch and removes the app and its login item. Your logs and reports are kept.
 set -euo pipefail
 

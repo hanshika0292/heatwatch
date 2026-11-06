@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Hanshika Gupta. See LICENSE.
+
 import Foundation
 import IOKit.ps
 import IOKit.pwr_mgt
@@ -129,7 +132,8 @@ final class Sensors {
     ///   all 23 "Tp" sensors rise under CPU load.)
     /// - M3 family: "Te" are efficiency cores, "Tf0x"/"Tf4x" performance cores and
     ///   "Tf1x"/"Tf2x" the GPU.
-    /// Key families follow the sensor tables in Stats (github.com/exelban/stats).
+    /// Key families follow the sensor tables in Stats (github.com/exelban/stats, MIT;
+    /// see THIRD_PARTY_NOTICES.md).
     /// Each read takes about 0.2 ms on Apple silicon, so the GPU's dozens of near-identical
     /// sensors are thinned to 8 spread across it. Every CPU sensor is kept, for a true hottest core.
     private lazy var siliconKeys: (cpu: [String], gpu: [String]) = {

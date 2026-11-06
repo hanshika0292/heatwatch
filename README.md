@@ -1,6 +1,11 @@
 # HeatWatch: Mac CPU temperature and fan monitor for Apple Silicon and Intel
 
-**A free, open-source menu-bar app that shows your Mac's CPU temperature, fan speed and thermal throttling, then writes a daily heat report.** Works on Apple Silicon Macs (M1, M2, M3, M4 and M5, including Pro, Max and Ultra) and on Intel Macs. No sudo, no kernel extension, no helper tool, no third-party packages, no network access. Install from source with one command.
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![macOS 12+](https://img.shields.io/badge/macOS-12%2B-lightgrey.svg)
+![Apple Silicon and Intel](https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-universal-orange.svg)
+![Swift](https://img.shields.io/badge/Swift-AppKit%20%2B%20IOKit-F05138.svg)
+
+**A free, open-source (MIT) menu-bar app that shows your Mac's CPU temperature, fan speed and thermal throttling, then writes a daily heat report.** Works on Apple Silicon Macs (M1, M2, M3, M4 and M5, including Pro, Max and Ultra) and on Intel Macs. No sudo, no kernel extension, no helper tool, no third-party packages, no network access. Install from source with one command.
 
 <p align="center">
   <picture>
@@ -20,7 +25,7 @@ macOS doesn't show CPU temperature or fan speed anywhere. HeatWatch puts them in
 ## Contents
 
 - [Features](#features) · [Supported Macs](#supported-macs) · [Install](#install) · [The daily heat report](#the-daily-heat-report)
-- [What's a normal Mac CPU temperature?](#whats-a-normal-mac-cpu-temperature) · [FAQ](#faq) · [How it works](#how-it-works) · [Limitations](#limitations)
+- [What's a normal Mac CPU temperature?](#whats-a-normal-mac-cpu-temperature) · [FAQ](#faq) · [How it works](#how-it-works) · [Limitations](#limitations) · [License](#license)
 
 ## Features
 
@@ -231,6 +236,16 @@ Built with Swift, AppKit and IOKit. There's no Xcode project, Swift package or d
 - The cooling-pad setting is manual. HeatWatch can't detect a pad.
 - There's no signed or notarized download. Build from source with `./install.sh`, which avoids Gatekeeper warnings because nothing is downloaded as an app.
 
+## Contributing
+
+Bug reports and pull requests are welcome. The most useful thing you can send is the output of `HeatWatch --probe` from a Mac that isn't listed as tested above, especially an M1–M4 chip, a MacBook Air or a desktop. By contributing, you agree that your contribution is licensed under the MIT License.
+
 ## Credits
 
-The Apple Silicon sensor key families follow the sensor tables in [Stats](https://github.com/exelban/stats) by Serhiy Mytrovtsiy (MIT licence). Those keys were checked on an M5 Pro by loading the CPU cores and watching which sensors rose.
+The Apple Silicon sensor key families follow the sensor tables in [Stats](https://github.com/exelban/stats) by Serhiy Mytrovtsiy, used under the MIT License (see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). Those keys were checked on an M5 Pro by loading the CPU cores and watching which sensors rose.
+
+## License
+
+HeatWatch is released under the [MIT License](LICENSE). Copyright (c) 2026 Hanshika Gupta.
+
+You can use, copy, modify and redistribute it, including commercially, as long as you keep the copyright and licence notice. `build.sh` copies `LICENSE` and `THIRD_PARTY_NOTICES.md` into the app bundle (`HeatWatch.app/Contents/Resources/`), so they travel with any copy of the app. The software comes with no warranty.
