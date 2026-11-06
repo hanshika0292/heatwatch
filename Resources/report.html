@@ -194,7 +194,7 @@
 
   <section class="card">
     <h2>Hot spells</h2>
-    <p class="sub">Stretches of a minute or more with the CPU at 90°C or hotter.</p>
+    <p class="sub">Stretches of a minute or more with the CPU at <span id="hotT"></span> or hotter.</p>
     <div class="scroll" id="spells"></div>
   </section>
 
@@ -213,6 +213,8 @@
 (() => {
   const T = DATA.thresholds;
   const D = DATA.today;
+  const AS = DATA.chip === 'apple';  // Apple silicon: CPU is the average of every core sensor; fans may switch off
+  const HOT = `${T.hot}°C`;
   const N = D.t.length;
   const GAP = 90;  // seconds; a longer silence between rows is a break in logging
 
@@ -259,6 +261,10 @@
   }
   const minutesWhere = (pred) => { let m = 0; for (let i = 0; i < N; i++) if (pred(i)) m += mins[i]; return m; };
   const isHot = (i) => D.cpu[i] != null && D.cpu[i] >= T.hot;
+  // macOS holding the CPU back: Intel's speed cap, or Apple silicon thermal pressure above nominal.
+  // Mirrors LogRow.isSlowed in the app.
+  const slowed = (i) => D.limit[i] < 100 || (D.pressure[i] ?? 0) >= 1;
+  const PRESSURE = ['nominal', 'moderate', 'heavy', 'trapping', 'sleeping'];
 
   // ---------- day statistics ----------
   const total = minutesWhere(() => true);
@@ -269,14 +275,19 @@
   const peak = peakI >= 0 ? peakAt(peakI) : null;
   const hotMin = minutesWhere(isHot);
   const critMin = minutesWhere((i) => D.cpu[i] != null && D.cpu[i] >= T.critical);
-  const throttledMin = minutesWhere((i) => D.limit[i] < 100);
+  const throttledMin = minutesWhere(slowed);
   const lowestLimit = N ? Math.min(...D.limit) : 100;
+  const worstPressure = maxOf(D.pressure) ?? 0;
+  const slowedHow = lowestLimit < 100 ? `lowest cap ${lowestLimit}%` : `${PRESSURE[Math.min(worstPressure, 4)]} thermal pressure`;
   const idle = wavg('cpu', (i) => D.load[i] != null && D.load[i] < 15);
   const fanAvg = wavg('fan').avg;
   const fanMax = maxOf(D.fanMax);
   const fanPeak = maxOf(D.fan);
   const fanWhenHot = wavg('fan', isHot);
-  const fanSilentWhileWarm = minutesWhere((i) => D.cpu[i] >= 70 && D.fan[i] != null && D.fan[i] < 100);
+  // Fans reading as stopped while macOS asks for speed. (Fans that are simply off, with no
+  // target, are normal on Apple silicon MacBook Pros when cool.)
+  const fanStuck = minutesWhere((i) => D.fan[i] != null && D.fan[i] < 100 && D.fanTarget[i] != null && D.fanTarget[i] >= 500);
+  const fanOffMin = minutesWhere((i) => D.fan[i] != null && D.fan[i] < 100);
   const padMin = minutesWhere((i) => D.pad[i]);
   const palmPeak = maxOf(D.palm);
   const batteryPeak = maxOf(D.battery);
@@ -304,8 +315,9 @@
   metaBits.push(`Built at ${DATA.generatedAt}`);
   $('meta').textContent = metaBits.join(' · ');
   $('culpritT').textContent = `${T.culprit}°C`;
+  $('hotT').textContent = HOT;
   $('footer').append(
-    'Temperatures are 30-second averages; “peak” is the hottest single reading. Raw data: ',
+    `Temperatures are 30-second averages; “peak” is the hottest single reading.${AS ? ' On Apple silicon, CPU is the average of every CPU-core sensor and fan speed is the average of the fans.' : ''} Raw data: `,
     h('code', null, DATA.logPath));
 
   // ---------- status icons ----------
@@ -341,29 +353,39 @@
   if (N && D.cpu.every((v) => v == null)) {
     add('warning', 'No CPU temperature sensor found', 'HeatWatch couldn’t read a CPU temperature on this Mac, so most of this report is empty.');
   }
-  if (fanSilentWhileWarm >= 2) {
-    add('critical', 'Fan reported 0 rpm while the CPU was warm',
-      `For ${dur(fanSilentWhileWarm)} the CPU was 70°C or hotter but the fan read as stopped. After a logic-board replacement the fan cable can be left loose. Avoid heavy work and have the repair shop check the fan connection soon.`);
+  if (fanStuck >= 2) {
+    add('critical', 'Fan read as stopped while macOS was asking it to spin',
+      `For ${dur(fanStuck)} the fan reported under 100 rpm even though macOS was asking for speed. That points to a fan or fan-cable fault. Avoid heavy work and ${AS ? 'run Apple Diagnostics (hold the power button at startup, then press ⌘D) or contact Apple Support' : 'have the fan connection checked soon'}.`);
   } else if (fanWhenHot.minutes >= 5 && fanMax) {
     const share = fanWhenHot.avg / fanMax;
     if (share >= 0.85) {
-      add('serious', 'Fan at full speed and the CPU still stayed at 90°C or hotter',
-        `During hot stretches the fan averaged ${rpm(fanWhenHot.avg)} rpm (${Math.round(share * 100)}% of its ${rpm(fanMax)} rpm maximum). The cooling system is maxed out. Usual causes: thermal paste that’s dried out or badly applied (worth checking after a board swap), dust in the fan or heatsink, or blocked vents along the hinge.`);
+      add('serious', `Fan at full speed and the CPU still stayed at ${HOT} or hotter`,
+        `During hot stretches the fan averaged ${rpm(fanWhenHot.avg)} rpm (${Math.round(share * 100)}% of its ${rpm(fanMax)} rpm maximum). The cooling system is maxed out. ${AS
+          ? 'For long heavy jobs (exports, builds, games) that’s expected. If it happens with light work, check the vents aren’t blocked: soft surfaces like a bed or sofa cover them.'
+          : 'Usual causes: thermal paste that’s dried out or badly applied (common on older Intel Macs and after repairs), dust in the fan or heatsink, or blocked vents.'}`);
+    } else if (share < 0.5 && AS && throttledMin < 1) {
+      add('good', 'Fans stayed quiet while the chip was hot',
+        `They averaged ${rpm(fanWhenHot.avg)} rpm (${Math.round(share * 100)}% of max) while the CPU was at ${HOT} or hotter, and macOS never had to hold the chip back. Apple silicon is designed to run hot before the fans speed up, so this is normal.`);
     } else if (share < 0.5) {
-      add('warning', 'Fan stayed slow while the CPU was hot',
-        `It averaged ${rpm(fanWhenHot.avg)} rpm (${Math.round(share * 100)}% of max) while the CPU was at 90°C or hotter. If this keeps happening, try an SMC reset first: shut down, hold Shift + Control + Option + Power for 10 seconds, then start up. If nothing changes, have the fan and its sensor cables checked.`);
+      add('warning', `Fan stayed slow while the CPU was hot`,
+        `It averaged ${rpm(fanWhenHot.avg)} rpm (${Math.round(share * 100)}% of max) while the CPU was at ${HOT} or hotter${AS ? ', and macOS was holding the chip back to cool it' : ''}. ${AS
+          ? 'If this keeps happening, shut down for 30 seconds and start up again. If nothing changes, run Apple Diagnostics (hold the power button at startup, then press ⌘D).'
+          : 'If this keeps happening, reset the SMC first (Apple Support has the steps for each model). If nothing changes, have the fan and its sensor cables checked.'}`);
     } else {
       add('good', 'Fan speeds up when the CPU gets hot',
         `It averaged ${rpm(fanWhenHot.avg)} rpm (${Math.round(share * 100)}% of max) during hot stretches. The fan is doing its job.`);
     }
   }
   if (idle.minutes >= 10) {
-    if (idle.avg > 70) {
-      add('serious', `Hot even when idle: ${deg(idle.avg)} at under 15% CPU load`,
-        'This model usually sits around 40–60°C when lightly used. Running this hot with little to do points to poor heat transfer between the CPU and its heatsink. After a logic-board replacement that usually means the thermal paste or heatsink wasn’t re-seated well. Ask the repair shop to check it.');
-    } else if (idle.avg > 62) {
-      add('warning', `Idle temperature on the high side: ${deg(idle.avg)}`,
-        'This model usually sits around 40–60°C when lightly used (higher in a warm room). If it stays above 65°C on quiet days, ask the repair shop to check the heatsink and thermal paste.');
+    const usual = `${T.idleLow}–${T.idleHigh}°C`;
+    if (idle.avg > T.idleHot) {
+      add('serious', `Hot even when idle: ${deg(idle.avg)} at under 15% CPU load`, AS
+        ? `This Mac usually sits around ${usual} when lightly used. Running this hot with little to do usually means something busy in the background (check Activity Monitor’s CPU tab), blocked vents, or a very warm room. If none of those, run Apple Diagnostics (hold the power button at startup, then press ⌘D).`
+        : `Intel Macs usually sit around ${usual} when lightly used. Running this hot with little to do points to poor heat transfer between the CPU and its heatsink: dried-out or badly applied thermal paste, a heatsink that wasn’t re-seated after a repair, or dust. A repair shop can check it.`);
+    } else if (idle.avg > T.idleWarm) {
+      add('warning', `Idle temperature on the high side: ${deg(idle.avg)}`, AS
+        ? `This Mac usually sits around ${usual} when lightly used (higher in a warm room or while charging). Background work like Spotlight indexing, Photos analysis or a backup can keep it warm for a while.`
+        : `Intel Macs usually sit around ${usual} when lightly used (higher in a warm room). If it stays above ${T.idleWarm}°C on quiet days, have the heatsink and thermal paste checked.`);
     } else {
       add('good', `Idle temperature is normal: ${deg(idle.avg)}`,
         'At light load the CPU sits where it should, which suggests the heatsink is making decent contact. The hot spells come from workload, not a cooling fault.');
@@ -373,20 +395,25 @@
     const share = total ? Math.round((hotMin / total) * 100) : 0;
     if (critMin >= 5) {
       add('critical', `${dur(critMin)} at ${T.critical}°C or hotter`,
-        'That’s right at the CPU’s 100°C limit. It protects itself by slowing down, but staying this close to the limit for long isn’t healthy. Close heavy apps, keep the hinge vents clear and use the cooling pad.');
+        AS ? 'That’s about as hot as Apple silicon gets before macOS holds it back. It protects itself, but if your work doesn’t need it, close heavy apps, keep the vents clear and use the cooling pad.'
+           : 'That’s close to the CPU’s limit (about 100°C on most Intel Macs). It protects itself by slowing down, but staying this close to the limit for long isn’t healthy. Close heavy apps, keep the vents clear and use a cooling pad.');
     } else if (hotMin >= 30) {
-      add('serious', `${dur(hotMin)} at 90°C or hotter (${share}% of the day)`,
-        'The CPU is rated to 100°C, so this isn’t dangerous in short bursts. Long stretches this hot slow the Mac down and age the battery and other parts faster.');
+      add('serious', `${dur(hotMin)} at ${HOT} or hotter (${share}% of the day)`,
+        `${AS ? 'Apple silicon is built to run this hot under load' : 'The CPU is rated to 100°C'}, so this isn’t dangerous in short bursts. Long stretches this hot age the battery and other parts faster${AS ? '' : ' and slow the Mac down'}.`);
     } else if (hotMin >= 5) {
-      add('warning', `${dur(hotMin)} at 90°C or hotter`, 'Short hot spells under heavy load are normal for this thin 13-inch model. The hot spells table below shows when they happened.');
+      add('warning', `${dur(hotMin)} at ${HOT} or hotter`, `Short hot spells under heavy load are normal. The hot spells table below shows when they happened.`);
     } else {
-      add('good', 'Rarely reached 90°C', 'The CPU almost never stayed at 90°C or hotter for a whole 30-second stretch.');
+      add('good', `Rarely reached ${HOT}`, `The CPU almost never stayed at ${HOT} or hotter for a whole 30-second stretch.`);
     }
     if (throttledMin > 0) {
-      add(throttledMin >= 10 ? 'serious' : 'warning', `macOS slowed the CPU for ${dur(throttledMin)}`,
-        `At its lowest the CPU was capped at ${lowestLimit}% of full speed. macOS does this mostly to manage heat, and it’s why the Mac can feel sluggish when it’s hot.`);
+      add(throttledMin >= 10 ? 'serious' : 'warning', `macOS slowed the CPU for ${dur(throttledMin)}`, lowestLimit < 100
+        ? `At its lowest the CPU was capped at ${lowestLimit}% of full speed. macOS does this mostly to manage heat, and it’s why the Mac can feel sluggish when it’s hot.`
+        : `macOS reported ${PRESSURE[Math.min(worstPressure, 4)]} thermal pressure, which means it lowered the chip’s power to cool it down. It’s why the Mac can feel slower when it’s hot.`);
     } else {
-      add('good', 'No slowdowns', 'macOS never had to cap the CPU’s speed.');
+      add('good', 'No slowdowns', 'macOS never had to slow the CPU down to manage heat.');
+    }
+    if (AS && fanOffMin >= 30 && fanStuck < 2) {
+      add('good', `Fans were off for ${dur(fanOffMin)}`, 'Apple silicon MacBook Pros switch their fans off when there’s little heat to move. That’s normal, and it means the Mac was running cool and silent.');
     }
   }
   if (palmPeak != null && palmPeak >= 40) {
@@ -412,8 +439,8 @@
       return;
     }
     let sentence = `The CPU averaged ${deg(cpuAvg)} and peaked at ${deg(peak)} at ${clock(D.t[peakI])}. `;
-    if (hotMin >= 1) sentence += `It spent ${dur(hotMin)} at 90°C or hotter${throttledMin >= 1 ? ` and was slowed by macOS for ${dur(throttledMin)}` : ''}.`;
-    else sentence += throttledMin >= 1 ? `macOS slowed it for ${dur(throttledMin)}.` : 'It never stayed at 90°C or hotter for long.';
+    if (hotMin >= 1) sentence += `It spent ${dur(hotMin)} at ${HOT} or hotter${throttledMin >= 1 ? ` and was slowed by macOS for ${dur(throttledMin)}` : ''}.`;
+    else sentence += throttledMin >= 1 ? `macOS slowed it for ${dur(throttledMin)}.` : `It never stayed at ${HOT} or hotter for long.`;
     if (total < 30) {
       v.append(icon('warning', 28), h('div', null,
         h('span', { class: 'level' }, 'Early days'),
@@ -440,13 +467,14 @@
       return h('span', null, h('span', { class: `delta ${better ? 'better' : 'worse'}` }, `${better ? '▼' : '▲'} ${fmt(Math.abs(d))}${unit}`), ` vs ${vs}`);
     }
     const tile = (label, value, note) => h('div', { class: 'tile' }, h('p', { class: 'label' }, label), h('p', { class: 'value' }, value), note ? h('p', { class: 'note' }, note) : null);
-    host.append(
+    host.append(...[
       tile('Average CPU', deg(cpuAvg), prev ? delta(cpuAvg, prev.avgCpu, '°C') : 'Whole day'),
       tile('Peak CPU', deg(peak), `at ${clock(D.t[peakI])}`),
-      tile('Time at 90°C+', dur(hotMin), prev ? delta(hotMin, prev.hotMin, ' min') : `of ${dur(total)} logged`),
-      tile('CPU slowed', throttledMin > 0 ? dur(throttledMin) : 'Never', throttledMin > 0 ? `lowest cap ${lowestLimit}%` : 'no thermal slowdown'),
-      tile('Average fan', fanAvg == null ? 'No fan' : h('span', null, rpm(fanAvg), h('small', null, ' rpm')), fanMax ? `${Math.round((fanAvg / fanMax) * 100)}% of max · peak ${rpm(fanPeak)}` : null),
-      tile('Idle CPU', deg(idle.avg), idle.minutes ? 'at under 15% load (normal: 40–60°C)' : 'no idle time logged'));
+      tile(`Time at ${HOT}+`, dur(hotMin), prev ? delta(hotMin, prev.hotMin, ' min') : `of ${dur(total)} logged`),
+      tile('CPU slowed', throttledMin > 0 ? dur(throttledMin) : 'Never', throttledMin > 0 ? slowedHow : 'no thermal slowdown'),
+      fanAvg == null ? null : tile('Average fan', h('span', null, rpm(fanAvg), h('small', null, ' rpm')), fanMax ? `${Math.round((fanAvg / fanMax) * 100)}% of max · peak ${rpm(fanPeak)}${AS && fanOffMin >= 1 ? ` · off ${dur(fanOffMin)}` : ''}` : null),
+      tile('Idle CPU', deg(idle.avg), idle.minutes ? `at under 15% load (normal: ${T.idleLow}–${T.idleHigh}°C)` : 'no idle time logged'),
+    ].filter(Boolean));
   })();
 
   // ---------- timeline ----------
@@ -470,8 +498,10 @@
     const notes = [];
     if (D.cpuPeak[i] != null && D.cpu[i] != null && D.cpuPeak[i] - D.cpu[i] >= 2) notes.push(`Hottest reading ${deg(D.cpuPeak[i])}`);
     if (D.limit[i] < 100) notes.push(`CPU slowed to ${D.limit[i]}%`);
+    else if (slowed(i)) notes.push(`${PRESSURE[Math.min(D.pressure[i], 4)]} thermal pressure`);
+    if (D.fan[i] != null && D.fan[i] < 100) notes.push('Fans off');
     notes.push(D.pad[i] ? 'Cooling pad on' : 'No cooling pad');
-    notes.push(D.ac[i] ? 'On charger' : 'On battery');
+    notes.push(D.ac[i] ? 'Plugged in' : 'On battery');
     tip.append(h('div', { class: 'tip-note' }, notes.join(' · ')));
     if (D.top[i]) {
       const busy = D.top[i].split('|').map((p) => { const at = p.lastIndexOf(':'); return `${p.slice(0, at)} ${p.slice(at + 1)}%`; });
@@ -549,6 +579,8 @@
     }
 
     function linePanel(cfg) {
+      cfg.series = cfg.series.filter((se) => D[se.key].some((v) => v != null));
+      if (!cfg.series.length) return '';
       const panel = h('div', { class: 'panel' });
       const head = h('div', { class: 'panel-head' }, h('h3', null, cfg.title, h('span', { class: 'unit' }, ` ${cfg.unit}`)));
       if (cfg.series.length > 1) {
@@ -647,14 +679,14 @@
     function statePanel() {
       const rows = [
         { name: 'Cooling pad on', on: (i) => !!D.pad[i], cls: 'band-state' },
-        { name: 'On charger', on: (i) => !!D.ac[i], cls: 'band-state' },
-        { name: 'CPU slowed by macOS', on: (i) => D.limit[i] < 100, cls: 'band-throttle' },
+        { name: 'Plugged in', on: (i) => !!D.ac[i], cls: 'band-state' },
+        { name: 'CPU slowed by macOS', on: slowed, cls: 'band-throttle' },
       ];
       const rowH = 30, band = 9, axisH = 22;
       const H = rows.length * rowH + axisH;
       const panel = h('div', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h3', null, 'Conditions')));
       const svg = s('svg', { class: 'chart', width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img', tabindex: 0,
-        'aria-label': `When the cooling pad and charger were in use, and when macOS slowed the CPU. Cooling pad on for ${dur(padMin)}; CPU slowed for ${dur(throttledMin)}.` });
+        'aria-label': `When the cooling pad and power adapter were in use, and when macOS slowed the CPU. Cooling pad on for ${dur(padMin)}; CPU slowed for ${dur(throttledMin)}.` });
       const sessions = segments('load').length ? segments('load') : segments('cpu');
       rows.forEach((row, k) => {
         const by = k * rowH + 17;
@@ -737,7 +769,7 @@
       }
       const p = peakAt(i);
       if (p != null && (a.peak == null || p > a.peak)) a.peak = p;
-      if (D.limit[i] < 100) a.slowed += mins[i];
+      if (slowed(i)) a.slowed += mins[i];
       if (D.pad[i]) a.pad += mins[i];
       hours.set(hr, a);
     }
@@ -861,7 +893,7 @@
       const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
       return { ...sp, minutes, peakV, fan: mean(fan), load: mean(load), pad: pad === 0 ? 'Off' : pad === n ? 'On' : 'Part', names: [...names.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map((e) => e[0]) };
     }).filter((sp) => sp.minutes >= 1);
-    if (!detailed.length) { host.append(h('p', { class: 'empty' }, 'None. The CPU never stayed at 90°C or hotter for a full minute.')); return; }
+    if (!detailed.length) { host.append(h('p', { class: 'empty' }, `None. The CPU never stayed at ${HOT} or hotter for a full minute.`)); return; }
     const shown = [...detailed].sort((a, b) => b.minutes - a.minutes).slice(0, 12).sort((a, b) => a.start - b.start);
     const head = h('tr', null, ...['When', 'Length', 'Peak', 'Avg fan', 'Avg load', 'Pad', 'Busiest apps'].map((c, j) => h('th', { class: j && j < 5 ? 'num' : '' }, c)));
     const body = shown.map((sp) => h('tr', null,
@@ -879,7 +911,7 @@
     const host = $('week');
     if (days.length < 2) { host.append(h('p', { class: 'empty' }, 'Comparisons appear here once HeatWatch has logged a few days.')); }
     if (!days.length) return;
-    const head = h('tr', null, ...['Day', 'Logged', 'Avg CPU', 'Peak', 'At 90°C+', 'CPU slowed', 'Cooling pad'].map((c, j) => h('th', { class: j ? 'num' : '' }, c)));
+    const head = h('tr', null, ...['Day', 'Logged', 'Avg CPU', 'Peak', `At ${HOT}+`, 'CPU slowed', 'Cooling pad'].map((c, j) => h('th', { class: j ? 'num' : '' }, c)));
     const body = days.slice().reverse().map((d) => h('tr', { class: d.day === DATA.day ? 'current' : '' },
       h('td', null, shortDay(d.day)), h('td', { class: 'num' }, dur(d.minutes)), h('td', { class: 'num' }, deg(d.avgCpu)),
       h('td', { class: 'num' }, deg(d.peak)), h('td', { class: 'num' }, dur(d.hotMin)),

@@ -1,183 +1,236 @@
-# HeatWatch
+# HeatWatch: Mac CPU temperature and fan monitor for Apple Silicon and Intel
 
-A macOS menu-bar app that shows CPU temperature and fan speed on an Intel MacBook Pro, logs them all day, and writes a daily heat report.
+**A free, open-source menu-bar app that shows your Mac's CPU temperature, fan speed and thermal throttling, then writes a daily heat report.** Works on Apple Silicon Macs (M1, M2, M3, M4 and M5, including Pro, Max and Ultra) and on Intel Macs. No sudo, no kernel extension, no helper tool, no third-party packages, no network access. Install from source with one command.
 
-## The problem
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/panel-dark.png">
+    <img src="docs/panel-light.png" width="300" alt="HeatWatch menu-bar panel on an M5 Pro MacBook Pro: CPU temperature, fan speed in rpm, 30-minute charts, hottest core, GPU, SSD, battery and palm-rest temperatures, and the busiest apps">
+  </picture>
+</p>
 
-Intel MacBook Pros run hot under load, and macOS quietly slows the CPU to keep it under its limit. macOS doesn't show CPU temperature or fan speed anywhere in its interface, so you can't tell if the heat is normal, if the fan is keeping up, or if a fix like a cooling pad helps. HeatWatch was built for a 2017 13-inch MacBook Pro (MacBookPro14,1) after a logic-board replacement, to answer those questions with data.
+macOS doesn't show CPU temperature or fan speed anywhere. HeatWatch puts them in the menu bar, records them all day, and answers the questions you actually have:
+
+- **Is my Mac running too hot?** Live CPU temperature with a Normal / Warm / Hot / Very hot status.
+- **Is macOS throttling my CPU?** It detects thermal throttling on Apple Silicon (thermal pressure) and on Intel (the CPU speed cap).
+- **Are the fans keeping up?** Speed of every fan, as rpm and as a percentage of maximum.
+- **What's making it hot?** The busiest apps while the CPU was hot.
+- **Does my cooling pad help?** It compares temperatures with and without the pad at the same CPU load.
+
+## Contents
+
+- [Features](#features) · [Supported Macs](#supported-macs) · [Install](#install) · [The daily heat report](#the-daily-heat-report)
+- [What's a normal Mac CPU temperature?](#whats-a-normal-mac-cpu-temperature) · [FAQ](#faq) · [How it works](#how-it-works) · [Limitations](#limitations)
 
 ## Features
 
-**Menu bar**
+**Menu bar.** CPU temperature and fan speed, e.g. `52°  2317 rpm`, or temperature only. The text turns orange when the CPU is hot and red when it's very hot.
 
-- Shows the CPU temperature and fan speed, for example `72°  3380 rpm`. You can switch to temperature only.
-- The text turns orange at 90°C and red at 97°C. This colour change is the only live alert. HeatWatch doesn't send notifications.
+**Live panel** (click the menu-bar item):
 
-**Live panel** (click the menu-bar item)
+- CPU temperature and fan speed, with a status, and a note when macOS is slowing the CPU
+- 30-minute charts of CPU temperature and fan speed (CPU load on fanless Macs)
+- Every sensor: hottest CPU core, GPU, SSD (chipset on Intel), palm rest, battery, each fan, CPU load, power source, CPU speed and macOS thermal state
+- Today so far: average and peak temperature, time spent hot, time throttled
+- The three busiest apps right now. Helper processes count toward their app, so Chrome's helpers count as Chrome
 
-- CPU temperature and fan speed, with a status: Normal, Warm, Hot or Very hot. It notes when macOS has slowed the CPU, and shows the fan speed as a percentage of its maximum.
-- Charts of CPU temperature and fan speed for the last 30 minutes. Gaps show when the Mac was asleep.
-- Every sensor HeatWatch reads: hottest CPU core, CPU proximity, GPU, chipset, palm rest, battery, CPU load, power source (charger or battery), CPU speed cap, and macOS's thermal state.
-- Today so far: time logged, average and peak temperature (with the time of the peak), time at 90°C or hotter, and time the CPU was slowed.
-- The three busiest apps right now. Helper processes count toward their app, so Chrome's helpers count as Chrome.
+**Daily heat report.** An interactive HTML page that opens in your browser every evening. [More below](#the-daily-heat-report).
 
-**Menu actions**
+**Cooling-pad tracking.** Tick **Using Cooling Pad** (⌘P) while a laptop cooling pad is running. The report then shows whether it lowers CPU and palm-rest temperature at the same workload.
 
-- **Using Cooling Pad** (⌘P): tick it while a cooling pad is running. Each log row records whether the pad was on.
-- **Open Today's Report** (⌘R), **Past Reports** (the last 14 days with data) and **Show Data Folder**.
-- **Settings**: menu-bar text, update interval (2, 5 or 10 seconds), daily report time (6 PM to 11 PM, or never), and Launch at Login.
+**Light on resources.** It reads the sensors every 5 seconds (2 or 10 if you prefer). On an M5 Pro one reading takes about 7 ms, almost all of it waiting on the hardware: about 0.6 ms of CPU, roughly 0.01% of one core. The app uses about 24 MB of memory and writes about 200 KB of logs a day.
 
-**Daily report**
+**Private.** Everything stays on your Mac. HeatWatch makes no network connections and has no analytics. The report is a single self-contained file.
 
-A self-contained HTML page that opens in your default browser at 9 PM by default, once at least 30 minutes have been logged that day. If the Mac was asleep or off at that time, HeatWatch opens yesterday's report the next time it starts or wakes, as long as yesterday has about 30 minutes of data. The report has:
+## Supported Macs
 
-- A verdict and six key numbers: average CPU, peak CPU, time at 90°C+, time slowed, average fan and idle CPU. Average CPU and time at 90°C+ are compared with the previous logged day.
-- Interactive charts for the day: CPU and palm-rest temperature, fan speed, CPU load, and when the cooling pad, charger and CPU slowdowns were active. You can read any moment by hovering, or with the arrow keys.
-- Findings in plain language, based on fixed rules. Examples: the fan reading as stopped while the CPU was 70°C or hotter, the fan near full speed while the CPU stayed at 90°C+, high idle temperature, time at 90°C+ and 97°C+, macOS slowdowns, the palm rest or battery reaching 40°C, and `kernel_task` among the busy processes.
-- Cooling-pad effect over the last 7 days. Readings are split into three CPU-load bands (under 15%, 15–50%, over 50%), so the pad is only compared against similar work. A band needs at least 10 minutes with and without the pad before it counts.
-- Which apps were busiest while the CPU was at 85°C or hotter, and a table of hot spells (a minute or more at 90°C+).
-- An hour-by-hour table and a 7-day summary.
-- Light and dark mode.
+macOS 12 Monterey or later. One universal build runs natively on both Apple Silicon and Intel.
 
-**Command line**
+| Mac | How CPU temperature is read | Status |
+|---|---|---|
+| **Apple Silicon M5, M5 Pro, M5 Max** | Average of every CPU sensor (`Tp…` keys) | ✅ Tested on an M5 Pro MacBook Pro (Mac17,9) |
+| **Apple Silicon M1, M2, M4** (and Pro, Max, Ultra) | Average of every CPU sensor (`Tp…`/`Te…` keys) | ✅ Supported. Sensor layout from [Stats](https://github.com/exelban/stats)' tables |
+| **Apple Silicon M3, M3 Pro, M3 Max, M3 Ultra** | Average of the `Te…`, `Tf0…` and `Tf4…` sensors (M3 uses its own layout) | ✅ Supported. Sensor layout from Stats' tables |
+| **Intel MacBook Pro, MacBook Air, iMac, Mac mini, Mac Pro** | CPU package sensor (`TC0P`, `TC0D`, `TCXC`…) | ✅ Tested on a 2017 13-inch MacBook Pro (MacBookPro14,1) |
+| **Fanless Macs** (Apple Silicon MacBook Air) | As above | ✅ The panel shows GPU temperature and CPU load in place of the fan |
+| **Desktops** (Mac mini, Mac Studio, iMac) | As above | ✅ Battery and palm rest show `--`; their charts are hidden |
 
-The executable inside the app bundle (`HeatWatch.app/Contents/MacOS/HeatWatch`) takes these flags:
+HeatWatch finds Apple Silicon sensors by listing the SMC's keys when it starts, so a chip released after this was written will most likely work too. Run `--probe` (below) to see what your Mac reports. If the numbers look wrong, please [open an issue](https://github.com/hanshika0292/heatwatch/issues) with its output.
+
+## Install
+
+You need the Xcode Command Line Tools (`xcode-select --install`). Xcode itself isn't needed.
 
 ```bash
-HeatWatch --probe                            # print every sensor reading once
-HeatWatch --report [YYYY-MM-DD] [--no-open]  # build a report (default: today), print its path and open it
-HeatWatch --enable-login-item                # write the LaunchAgent that starts HeatWatch at login
+git clone https://github.com/hanshika0292/heatwatch.git
+cd heatwatch
+./install.sh
 ```
+
+`install.sh` builds the app, copies it to `~/Applications`, starts it, and starts it at every login. It doesn't need sudo. Look for the temperature in your menu bar.
+
+```bash
+git pull && ./install.sh   # update to the latest version
+./uninstall.sh             # remove the app and login item (your logs and reports are kept)
+```
+
+To try it without installing, run `./build.sh` and then `open build/HeatWatch.app`.
+
+**Check what your Mac reports:**
+
+```bash
+~/Applications/HeatWatch.app/Contents/MacOS/HeatWatch --probe
+```
+
+```
+CPU average     47.2°C
+Hottest core    48.4°C
+GPU             45.4°C
+SSD             37.4°C
+Battery         34.7°C
+Palm rest       33.4°C
+Fan 1           2311 rpm (target 2317, range 2317–7826)
+Fan 2           2498 rpm (target 2502, range 2317–7826)
+CPU load        4%
+Thermal pressure nominal
+Thermal state   nominal
+Power           plugged in
+
+Sensors         Apple M5 Pro (Mac17,9) · 23 CPU sensors, 7 GPU sensors, 2 fans
+One reading     7.71 ms
+```
+
+## The daily heat report
+
+At 9 PM (or 6–11 PM, or never: your choice under **Settings**), HeatWatch opens the day's report in your browser. If the Mac was asleep then, it opens it the next time you use the Mac. You can also open it any time with **Open Today's Report** (⌘R) or **Past Reports**.
+
+<p align="center">
+  <img src="docs/report.png" width="820" alt="HeatWatch daily heat report for an M5 Pro MacBook Pro: verdict, average and peak CPU temperature, time above 85°C, time throttled, fan speed, and charts of temperature, fan speed, CPU load and conditions through the day">
+</p>
+
+The report includes:
+
+- **A verdict and key numbers:** average and peak CPU temperature, time hot, time throttled, average fan speed and idle temperature, compared with the previous day
+- **Interactive charts** of CPU and palm-rest temperature, fan speed, CPU load, and when the cooling pad, power adapter and throttling were active. Hover or use the arrow keys to read any moment
+- **Plain-language findings**, for example: high idle temperature, fans at full speed while the CPU stays hot, a fan that reads as stopped when macOS asks it to spin, throttling, a hot palm rest or battery, and `kernel_task` among the busy processes
+- **Cooling-pad effect** over the last 7 days, split into light, moderate and heavy CPU load so the comparison is fair
+- **Which apps were running when it got hot**, and a table of hot spells
+- An hour-by-hour table and a 7-day summary, in light and dark mode
+
+## What's a normal Mac CPU temperature?
+
+These are the bands HeatWatch uses. You can change them in `Thresholds` in `Sources/Sensors.swift`.
+
+| | Apple Silicon (average of all CPU sensors) | Intel (CPU package) |
+|---|---|---|
+| Normal at idle (under 15% CPU) | 35–55°C | 40–60°C |
+| Warm | 70°C+ | 75°C+ |
+| Hot (orange in the menu bar) | 85°C+ | 90°C+ |
+| Very hot (red) | 95°C+ | 97°C+ |
+
+**Apple Silicon runs hot by design.** Individual cores can pass 100°C under heavy load, and Apple lets the chip get warm before spinning the fans up. Temperature on its own isn't a problem. What matters is whether macOS has to **throttle** the chip to cool it, which HeatWatch shows as "CPU slowed". On an M5 Pro, 90 seconds with all 15 cores busy took the average from 47°C to 68°C (hottest core 72°C) while the fans stayed at their minimum.
+
+**Intel Macs** are usually rated to about 100°C and slow themselves down to stay under it. On an older Intel Mac, high temperatures at idle, or the fan at full speed with the CPU still at 90°C+, usually mean dried-out thermal paste or dust. The report flags both.
+
+## FAQ
+
+**How do I check the CPU temperature on my Mac?**
+macOS has no built-in display for it. Install HeatWatch and the temperature appears in the menu bar. For a one-off reading, run `HeatWatch --probe` in Terminal.
+
+**How do I know if my Mac is thermal throttling?**
+On Apple Silicon, HeatWatch reads macOS's thermal pressure level. Anything above *Nominal* (*Moderate*, *Heavy*) means macOS is lowering the chip's power to cool it. On Intel, it reads the CPU speed cap, where anything under 100% means throttling. Either way the panel shows "slowed", and the report adds up how long it lasted.
+
+**Why do my MacBook Pro's fans show 0 rpm or "Off"?**
+Apple Silicon MacBook Pros switch their fans off completely when there's little heat to move. That's normal. HeatWatch only warns if a fan reads as stopped while macOS is asking it to spin.
+
+**Does it work on a MacBook Air?**
+Yes. Apple Silicon MacBook Airs have no fan, so the panel shows GPU temperature and CPU load in its place. Fanless Macs throttle sooner under sustained load, and the "CPU slowed" figure shows how often.
+
+**Can HeatWatch control fan speed?**
+No. HeatWatch only reads sensors. It never writes to the SMC or changes how your Mac cools itself.
+
+**Does it need admin rights, sudo or a privileged helper?**
+No. Reading the SMC (the same chip iStat Menus, TG Pro and Stats read) needs no special rights, and the app installs to your own `~/Applications`.
+
+**Will it slow my Mac down or drain the battery?**
+No. See [Light on resources](#features): about 0.01% of one core. It only runs `ps` to find busy apps when the CPU is hot or the menu is open.
+
+**Does a laptop cooling pad actually help?**
+Tick **Using Cooling Pad** whenever the pad is on. After a few hours with and without it, the report shows the difference in CPU and palm-rest temperature at the same workload.
+
+**Why not just use iStat Menus, TG Pro or Stats?**
+They're great. HeatWatch is narrower: it's free, it's about 1,500 lines of Swift you can read in an afternoon, and its focus is the daily report. It tells you how hot your Mac ran, whether it throttled, what caused it, and whether your cooling pad helps.
 
 ## How it works
 
-### Data sources
-
 | Reading | Source |
 |---|---|
-| Temperatures | SMC keys, read through IOKit (details below) |
-| Fan speed | SMC keys `FNum` (fan count) and `F0Ac`, `F0Tg`, `F0Mn`, `F0Mx` (actual, target, min and max rpm), and the same for other fans |
-| CPU load | `host_statistics(HOST_CPU_LOAD_INFO)`, from the change in CPU ticks since the previous sample |
-| CPU speed cap | `IOPMCopyCPUPowerStatus`, key `CPU_Speed_Limit`. Below 100% means macOS is slowing the CPU |
-| Thermal state | `ProcessInfo.thermalState` (nominal, fair, serious, critical) |
-| Power source | `IOPSCopyPowerSourcesInfo` and `IOPSGetProvidingPowerSourceType` |
-| Busiest apps | `/bin/ps -Aco pcpu=,comm=`, run on a background queue |
-| Machine name in the report | `sysctl` values `hw.model` and `machdep.cpu.brand_string` |
+| Temperatures | SMC keys, read through IOKit |
+| Fan speed | SMC keys `FNum`, `F0Ac`, `F0Tg`, `F0Mn`, `F0Mx` (and `F1…` for a second fan) |
+| Throttling, Apple Silicon | Thermal pressure from `notify_get_state("com.apple.system.thermalpressurelevel")` |
+| Throttling, Intel | `IOPMCopyCPUPowerStatus`, key `CPU_Speed_Limit` |
+| Thermal state | `ProcessInfo.thermalState` |
+| CPU load | `host_statistics(HOST_CPU_LOAD_INFO)` |
+| Power source | `IOPSCopyPowerSourcesInfo` |
+| Busiest apps | `/bin/ps -Aco pcpu=,comm=`, on a background queue |
 
-**SMC.** The System Management Controller owns the temperature sensors and fan controller on Intel Macs. `SMC.swift` is a small read-only client. It opens the `AppleSMC` IOKit service and calls its user client with `IOConnectCallStructMethod`, passing a Swift struct laid out like the kernel's 80-byte `SMCKeyData_t`. For each four-character key it first asks for the data size and type (and caches the answer), then reads the bytes. It decodes `flt` (float), `ui8`/`ui16`/`ui32` (unsigned integers), and the `sp..`/`fp..` fixed-point types.
+**SMC.** The System Management Controller owns the temperature sensors and fans on both Intel and Apple Silicon Macs. `SMC.swift` is a small read-only client: it opens the `AppleSMC` IOKit service and calls it with `IOConnectCallStructMethod`. It decodes the SMC's data types (`flt`, `ui8`/`ui16`/`ui32`, and the `sp`/`fp` fixed-point formats).
 
-**Sensor keys.** Keys differ between Mac models, so CPU and GPU try a list and use the first key that returns a value:
+**Finding sensors on Apple Silicon.** Sensor keys change with every Apple chip, so HeatWatch reads the key count (`#KEY`), lists every key by index once at launch (about 3,600 on an M5 Pro), and keeps each family that returns a plausible temperature:
 
-- CPU: `TCXC`, `TC0D`, `TC0E`, `TC0F`, `TC0P`
-- GPU: `TCGC`, `TG0D`, `TG0P`
-- CPU cores: `TC1C` to `TC8C` (the panel shows the hottest)
-- CPU proximity `TC0P`, chipset `TPCD`, battery `TB0T`, palm rest `Ts0P`
+- M1, M2, M4, M5 and later: `Tp…`/`Te…` are CPU sensors and `Tg…` is the GPU
+- M3 family: `Te…`, `Tf0…` and `Tf4…` are CPU sensors and `Tf1…`/`Tf2…` the GPU
+- `TH0x` is the SSD, `TB0T` the battery and `Ts0P` the palm rest
 
-A missing sensor often reports a placeholder such as -127°C, so any value outside 0–130°C counts as missing.
+"CPU" is the average of all CPU sensors and "hottest core" is the highest. Each SMC read takes about 0.2 ms on Apple Silicon, so the GPU's dozens of near-identical sensors are thinned to 8 spread across the chip. Fan count and speed range are read once.
 
-### Permissions
+**Logging.** Readings are grouped into 30-second windows, and each window becomes one CSV row (averages, plus the window's peak). The report is built from those rows: `Report.swift` loads the day and the six before it, turns them into JSON, and puts it into `Resources/report.html`, which draws everything with plain JavaScript and inline SVG.
 
-- No sudo, no root, no privileged helper and no entitlements. The SMC read calls it uses work as a normal user. HeatWatch doesn't use `powermetrics`.
-- It only reads. It never writes SMC keys and doesn't control the fans.
-- It makes no network connections. It writes data only to your home folder, or to `HEATWATCH_DATA_DIR` if you set it.
+**Launch at login** is a per-user LaunchAgent (`~/Library/LaunchAgents/local.heatwatch.plist`). launchd restarts HeatWatch after a crash, but not after you quit it.
 
-### Sampling and logging
-
-- HeatWatch takes a reading every 5 seconds by default. The timer allows macOS to shift wake-ups by up to 20% to save energy.
-- Readings are grouped into 30-second windows. Each window becomes one CSV row with the average temperatures, the hottest single CPU reading, the lowest speed cap, the highest thermal state, the power source, the cooling-pad flag and the busiest apps. That is at most about 2,900 rows (about 200 KB) a day.
-- If no reading arrives for a while (the Mac slept), the open window is closed where it stopped, so sleep doesn't stretch the data.
-- `ps` only runs when the CPU is at 85°C or hotter (at most once per 30-second window) or when you open the menu.
-- When launchd stops the app (logout or reinstall), it quits normally and writes the last partial window.
-
-### Heat levels
-
-These thresholds are hard-coded in `Sensors.swift` for the Core i5-7360U, which is rated to 100°C.
-
-| Level | CPU temperature |
-|---|---|
-| Normal | below 75°C |
-| Warm | 75°C to under 90°C |
-| Hot | 90°C to under 97°C (orange in the menu bar) |
-| Very hot | 97°C and above (red in the menu bar) |
-
-At 85°C and above, HeatWatch records which apps are busiest.
-
-### Report generation
-
-`Report.swift` loads the CSV logs for the chosen day and the six days before it. It computes day summaries and the cooling-pad comparison, then serialises everything to JSON. It puts that JSON into `Resources/report.html` in place of `__REPORT_DATA__` and saves the result as one standalone file. All charts and findings are drawn by plain JavaScript and inline SVG in that template. The day totals are calculated in both Swift (`DayStats`) and JavaScript, and the two are kept in step.
-
-### Launch at login
-
-Launch at Login writes a per-user LaunchAgent to `~/Library/LaunchAgents/local.heatwatch.plist`. It sets `RunAtLoad`, and `KeepAlive` with `SuccessfulExit: false`, so launchd restarts HeatWatch after a crash but not after you quit it. Only one copy runs at a time. A second copy exits on launch.
-
-### Where data lives
+### Files
 
 - Logs: `~/Library/Application Support/HeatWatch/logs/YYYY-MM-DD.csv`
 - Reports: `~/Library/Application Support/HeatWatch/reports/heat-report-YYYY-MM-DD.html`
-- Settings: user defaults for the bundle ID `local.heatwatch`
-- Set `HEATWATCH_DATA_DIR` to use a different data folder, for example when testing.
+- Set `HEATWATCH_DATA_DIR` to use a different folder, e.g. for testing
 
-CSV columns: `time, cpu, cpu_peak, cpu_prox, gpu, chipset, battery, palm_rest, fan, fan_target, fan_min, fan_max, load, speed_limit, thermal_state, on_ac, cooling_pad, top_processes`.
+CSV columns: `time, cpu, cpu_peak, cpu_prox, gpu, chipset, battery, palm_rest, fan, fan_target, fan_min, fan_max, load, speed_limit, thermal_state, on_ac, cooling_pad, top_processes, pressure`. Empty means the Mac doesn't have that sensor. New columns are only ever added at the end, so older logs keep working.
 
-## Tech stack
-
-- Swift and AppKit: `NSStatusItem`, `NSMenu`, and a custom `NSView` drawn with `NSBezierPath` for the live panel
-- IOKit: the SMC user client, IOPM (CPU power status) and IOPS (power sources)
-- Mach `host_statistics` for CPU load
-- launchd LaunchAgent for launch at login
-- HTML, CSS, plain JavaScript and inline SVG for the report
-- Built with `swiftc` from a shell script. There is no Xcode project, Swift package or third-party dependency.
-
-## Build and run
-
-**Requirements**
-
-- An Intel Mac running macOS 12 Monterey or later
-- Swift 5.7 or later: Xcode 14 or later, or just the Command Line Tools (`xcode-select --install`). Xcode itself isn't needed.
-
-**Build and try it**
+### Command line
 
 ```bash
-./build.sh                    # compiles into build/HeatWatch.app and signs it ad hoc
-open build/HeatWatch.app      # runs it from the build folder
-build/HeatWatch.app/Contents/MacOS/HeatWatch --probe   # check what your Mac reports
+HeatWatch --probe                            # print every sensor once, and how long a reading takes
+HeatWatch --report [YYYY-MM-DD] [--no-open]  # build a report (default: today) and open it
+HeatWatch --enable-login-item                # write the LaunchAgent that starts HeatWatch at login
 ```
 
-**Install**
-
-```bash
-./install.sh     # builds, copies to ~/Applications, starts it now and at every login
-./uninstall.sh   # stops it, removes the app and the LaunchAgent, keeps your logs and reports
-```
-
-`install.sh` doesn't need sudo. It stops any running copy, copies the app to `~/Applications`, writes the LaunchAgent and starts it with `launchctl bootstrap`.
-
-## Project structure
+### Project structure
 
 ```
 Sources/
   main.swift            Entry point and command-line flags
-  AppDelegate.swift     Menu-bar item, menu, settings, sampling timer, report scheduling, login item
-  DashboardView.swift   The live panel shown in the menu
-  Sensors.swift         Reads every sensor into a Reading; heat thresholds; ps sampler
-  SMC.swift             Minimal read-only SMC client over IOKit
+  AppDelegate.swift     Menu-bar item, menu, settings, sampling timer, report scheduling
+  DashboardView.swift   The live panel
+  Sensors.swift         Chip detection, sensor discovery, thresholds, thermal pressure, ps sampler
+  SMC.swift             Read-only SMC client over IOKit
   DataLog.swift         30-second windows, CSV storage, daily totals
   Report.swift          Builds the HTML report from 7 days of logs
-Resources/
-  report.html           Report template: findings and charts in plain JavaScript and SVG
-Info.plist              Bundle settings; LSUIElement hides the Dock icon
-build.sh                Compiles with swiftc and signs ad hoc
+Resources/report.html   Report template: findings and charts in plain JavaScript and SVG
+build.sh                Universal (arm64 + x86_64) build with swiftc, signed ad hoc
 install.sh              Builds, installs to ~/Applications and registers the LaunchAgent
-uninstall.sh            Stops the app and removes it and its LaunchAgent; keeps data
+uninstall.sh            Removes the app and LaunchAgent; keeps your data
 ```
 
-## Status and limitations
+Built with Swift, AppKit and IOKit. There's no Xcode project, Swift package or dependency.
 
-- A personal tool at version 1.0. It was built and used on one machine: a 13-inch 2017 MacBook Pro (MacBookPro14,1, Core i5-7360U).
-- Intel only. Apple Silicon Macs use different SMC sensor keys and aren't supported. `build.sh` targets the current machine's architecture, but HeatWatch has only been run on Intel.
-- Sensors differ by model. CPU and GPU try several keys. CPU proximity, palm rest, chipset and battery use one key each and show `--` if your Mac doesn't have it. Run `--probe` to see what yours reports.
-- Only the first fan is shown, logged and reported. On models with two fans, `--probe` lists both.
-- The heat thresholds and the report's advice are tuned for the original machine. For example, the report treats 40–60°C as a normal idle temperature, and some findings mention checking thermal paste after a logic-board repair. To use other values, edit `Thresholds` in `Sensors.swift` and the text in `Resources/report.html`.
-- There are no notifications. The menu-bar colour and the daily report are the only alerts.
-- You have to tick the cooling-pad setting yourself. HeatWatch can't detect a pad.
-- There are no automated tests and no signed or notarized release. Build it from source.
+## Limitations
+
+- Tested on real hardware on an M5 Pro MacBook Pro and a 2017 Intel MacBook Pro. Other Macs use the same code paths, with Apple Silicon sensor layouts taken from [Stats](https://github.com/exelban/stats)' published tables. Reports from other Macs are welcome.
+- Apple Silicon thresholds were set on an M5 Pro. Other chips run at similar temperatures, but you can tune `Thresholds` in `Sources/Sensors.swift`.
+- No notifications. The menu-bar colour and the daily report are the alerts.
+- The cooling-pad setting is manual. HeatWatch can't detect a pad.
+- There's no signed or notarized download. Build from source with `./install.sh`, which avoids Gatekeeper warnings because nothing is downloaded as an app.
+
+## Credits
+
+The Apple Silicon sensor key families follow the sensor tables in [Stats](https://github.com/exelban/stats) by Serhiy Mytrovtsiy (MIT licence). Those keys were checked on an M5 Pro by loading the CPU cores and watching which sensors rose.

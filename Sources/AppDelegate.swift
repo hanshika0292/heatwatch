@@ -95,7 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func tick() {
         let reading = sensors.read()
-        history.append(HistoryPoint(date: reading.date, cpu: reading.cpu, fan: reading.fan?.actual))
+        history.append(HistoryPoint(date: reading.date, cpu: reading.cpu, fan: reading.fan?.actual, load: reading.load))
         history.removeAll { reading.date.timeIntervalSince($0.date) > DashboardView.historySpan }
 
         // While it's hot, note what's running (once per log row).
