@@ -1,5 +1,6 @@
 # HeatWatch: Mac CPU temperature and fan monitor for Apple Silicon and Intel
 
+[![CI](https://github.com/hanshika0292/heatwatch/actions/workflows/ci.yml/badge.svg)](https://github.com/hanshika0292/heatwatch/actions/workflows/ci.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![macOS 12+](https://img.shields.io/badge/macOS-12%2B-lightgrey.svg)
 ![Apple Silicon and Intel](https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-universal-orange.svg)
