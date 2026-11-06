@@ -20,15 +20,21 @@ struct LogRow {
     var onAC: Bool
     var coolingPad: Bool
     var topProcesses: String    // "name:cpu|name:cpu", only sampled while hot
+    var pressure: Int?          // Apple silicon thermal pressure, highest in the window; nil on Intel
 
-    static let header = "time,cpu,cpu_peak,cpu_prox,gpu,chipset,battery,palm_rest,fan,fan_target,fan_min,fan_max,load,speed_limit,thermal_state,on_ac,cooling_pad,top_processes"
+    /// New columns go at the end, so files started with an older header still line up.
+    static let header = "time,cpu,cpu_peak,cpu_prox,gpu,chipset,battery,palm_rest,fan,fan_target,fan_min,fan_max,load,speed_limit,thermal_state,on_ac,cooling_pad,top_processes,pressure"
+
+    /// macOS was holding the CPU back to manage heat (keep in step with slowed() in report.html).
+    var isSlowed: Bool { speedLimit < 100 || (pressure ?? 0) >= 1 }
 
     var csvLine: String {
         func f(_ v: Double?) -> String { v.map { String(format: "%.1f", $0) } ?? "" }
         let time = String(format: "%02d:%02d:%02d", secs / 3600, secs / 60 % 60, secs % 60)
         return [time, f(cpu), f(cpuPeak), f(cpuProximity), f(gpu), f(chipset), f(battery), f(palmRest),
                 f(fan), f(fanTarget), f(fanMin), f(fanMax), f(load), String(speedLimit), String(thermalState),
-                onAC ? "1" : "0", coolingPad ? "1" : "0", topProcesses].joined(separator: ",")
+                onAC ? "1" : "0", coolingPad ? "1" : "0", topProcesses,
+                pressure.map(String.init) ?? ""].joined(separator: ",")
     }
 }
 
@@ -45,7 +51,8 @@ extension LogRow {
                   load: d("load"), speedLimit: s("speed_limit").flatMap { Int($0) } ?? 100,
                   thermalState: s("thermal_state").flatMap { Int($0) } ?? 0,
                   onAC: s("on_ac") == "1", coolingPad: s("cooling_pad") == "1",
-                  topProcesses: s("top_processes") ?? "")
+                  topProcesses: s("top_processes") ?? "",
+                  pressure: s("pressure").flatMap { Int($0) })
     }
 }
 
@@ -95,13 +102,28 @@ enum Storage {
         return lines.compactMap { LogRow(csv: $0, columns: columns) }
     }
 
+    private static var headerChecked: Set<String> = []
+
+    /// A file started by an older HeatWatch has fewer columns. Older rows simply lack the
+    /// new trailing fields, so swapping in the new header is all it takes.
+    private static func upgradeHeader(_ url: URL) throws {
+        let text = try String(contentsOf: url, encoding: .utf8)
+        guard let end = text.firstIndex(of: "\n") else { return }
+        let header = text[..<end]
+        guard header != LogRow.header, LogRow.header.hasPrefix(header + ",") else { return }
+        try (LogRow.header + text[end...]).write(to: url, atomically: true, encoding: .utf8)
+    }
+
     static func append(_ row: LogRow, day: String) {
         let url = logURL(day)
         do {
             if !FileManager.default.fileExists(atPath: url.path) {
                 try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
                 try (LogRow.header + "\n").write(to: url, atomically: true, encoding: .utf8)
+            } else if !headerChecked.contains(day) {
+                try upgradeHeader(url)
             }
+            headerChecked.insert(day)
             let handle = try FileHandle(forWritingTo: url)
             defer { try? handle.close() }
             try handle.seekToEnd()
@@ -165,7 +187,8 @@ final class Recorder {
                          thermalState: window.map(\.thermalState).max() ?? 0,
                          onAC: last.onAC,
                          coolingPad: coolingPad,
-                         topProcesses: top.joined(separator: "|"))
+                         topProcesses: top.joined(separator: "|"),
+                         pressure: window.compactMap(\.pressure).max())
         window.removeAll()
         hotProcesses = []
         windowStart = last.date
@@ -213,7 +236,7 @@ struct DayStats {
         minutes += m
         cpu.add(row.cpu, weight: m)
         if let c = row.cpu, c >= Thresholds.hot { hotMinutes += m }
-        if row.speedLimit < 100 { throttledMinutes += m }
+        if row.isSlowed { throttledMinutes += m }
         if row.coolingPad { coolingPadMinutes += m }
         if let p = row.cpuPeak ?? row.cpu, p > (peak ?? -.infinity) {
             peak = p

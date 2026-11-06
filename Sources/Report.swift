@@ -15,10 +15,13 @@ enum Report {
             "day": day,
             "generatedAt": String(format: "%02d:%02d", Storage.secondsSinceMidnight(Date()) / 3600,
                                   Storage.secondsSinceMidnight(Date()) / 60 % 60),
-            "machine": "\(sysctl("hw.model")) · \(sysctl("machdep.cpu.brand_string"))",
+            "machine": "\(Machine.model) · \(Machine.chip)",
             "logPath": Storage.logURL(day).path,
+            "chip": Machine.isAppleSilicon ? "apple" : "intel",
             "thresholds": ["warm": Thresholds.warm, "hot": Thresholds.hot,
-                           "critical": Thresholds.critical, "culprit": Thresholds.culprit],
+                           "critical": Thresholds.critical, "culprit": Thresholds.culprit,
+                           "idleLow": Thresholds.idleNormal.lowerBound, "idleHigh": Thresholds.idleNormal.upperBound,
+                           "idleWarm": Thresholds.idleWarm, "idleHot": Thresholds.idleHot],
             "today": columns(rowsByDay[day] ?? []),
             "history": week.map { summary(day: $0, rows: rowsByDay[$0] ?? []) },
             "pad": coolingPadComparison(week.map { rowsByDay[$0] ?? [] }),
@@ -63,6 +66,7 @@ enum Report {
             "fanMax": col { $0.fanMax },
             "load": col { $0.load },
             "limit": rows.map(\.speedLimit),
+            "pressure": rows.map { row -> Any in row.pressure ?? NSNull() },
             "thermal": rows.map(\.thermalState),
             "ac": rows.map { $0.onAC ? 1 : 0 },
             "pad": rows.map { $0.coolingPad ? 1 : 0 },
@@ -111,11 +115,4 @@ enum Report {
         return NSNull()
     }
 
-    private static func sysctl(_ name: String) -> String {
-        var size = 0
-        guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return "" }
-        var buffer = [CChar](repeating: 0, count: size)
-        guard sysctlbyname(name, &buffer, &size, nil, 0) == 0 else { return "" }
-        return String(cString: buffer)
-    }
 }

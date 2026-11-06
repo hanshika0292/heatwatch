@@ -8,9 +8,14 @@ let arguments = CommandLine.arguments
 
 if arguments.contains("--probe") {
     let sensors = Sensors()
-    _ = sensors.read()  // the first read only primes the CPU-load counters
+    _ = sensors.read()  // the first read finds the sensors and primes the CPU-load counters
     Thread.sleep(forTimeInterval: 1)
-    print(sensors.read().summary)
+    let start = Date()
+    let reading = sensors.read()
+    let took = Date().timeIntervalSince(start) * 1000
+    print(reading.summary)
+    print("\nSensors         \(sensors.inventory)")
+    print(String(format: "One reading     %.2f ms", took))
     exit(0)
 }
 

@@ -4,11 +4,13 @@ struct HistoryPoint {
     let date: Date
     let cpu: Double?
     let fan: Double?
+    let load: Double?
 }
 
 enum Palette {
     static let cpu = dynamic(light: 0x2a78d6, dark: 0x3987e5)
     static let fan = dynamic(light: 0x1baf7a, dark: 0x199e70)
+    static let load = dynamic(light: 0x898781, dark: 0x9c9a92)
 
     static func status(_ level: HeatLevel) -> NSColor {
         rgb([0x0ca30c, 0xfab219, 0xec835a, 0xd03b3b][level.rawValue])
@@ -63,24 +65,33 @@ final class DashboardView: NSView {
         let r = reading
         var y: CGFloat = 10
 
-        // Header: CPU on the left, fan on the right.
+        // Header: CPU on the left, fan on the right (GPU on a fanless Mac such as a MacBook Air).
+        let fanless = r?.fans.isEmpty == true
         caption("CPU", x: x, y: y, width: half)
-        caption("FAN", x: x + half, y: y, width: half)
+        caption(fanless ? "GPU" : (r?.fans.count ?? 0) > 1 ? "FANS" : "FAN", x: x + half, y: y, width: half)
         y += 15
         bigValue(r?.cpu.map { "\(Int($0.rounded()))" } ?? "--", unit: "°C", x: x, y: y)
-        if let fan = r?.fan {
+        if fanless {
+            bigValue(r?.gpu.map { "\(Int($0.rounded()))" } ?? "--", unit: "°C", x: x + half, y: y)
+        } else if let fan = r?.fan, fan.isOff {
+            bigValue("Off", unit: "", x: x + half, y: y)
+        } else if let fan = r?.fan {
             bigValue(Self.grouped(fan.actual), unit: " rpm", x: x + half, y: y)
         } else {
-            bigValue("--", unit: r == nil ? "" : " no fan found", x: x + half, y: y)
+            bigValue("--", unit: "", x: x + half, y: y)
         }
         y += 32
         let level = HeatLevel(r?.cpu)
         Palette.status(level).setFill()
         NSBezierPath(ovalIn: NSRect(x: x, y: y + 3.5, width: 8, height: 8)).fill()
         var status = level.label
-        if let limit = r?.speedLimit, limit < 100 { status += " · CPU slowed to \(limit)%" }
+        if r?.isSlowed == true { status += " · slowed" }
         text(status, in: NSRect(x: x + 13, y: y, width: half - 13, height: 16), size: 11.5, color: .secondaryLabelColor)
-        if let fan = r?.fan, let max = fan.max, max > 0 {
+        if fanless {
+            text("No fan on this Mac", in: NSRect(x: x + half, y: y, width: half, height: 16), size: 11.5, color: .secondaryLabelColor)
+        } else if let fan = r?.fan, fan.isOff {
+            text("Spin up when needed", in: NSRect(x: x + half, y: y, width: half, height: 16), size: 11.5, color: .secondaryLabelColor)
+        } else if let fan = r?.fan, let max = fan.max, max > 0 {
             text("\(Int((fan.actual / max * 100).rounded()))% of max (\(Self.grouped(max)))",
                  in: NSRect(x: x + half, y: y, width: half, height: 16), size: 11.5, color: .secondaryLabelColor)
         }
@@ -90,19 +101,28 @@ final class DashboardView: NSView {
         y = sparkline("CPU temperature · last 30 min", values: history.map { ($0.date, $0.cpu) },
                       range: 30...105, reference: Thresholds.hot, color: Palette.cpu,
                       format: { "\(Int($0.rounded()))°" }, x: x, y: y, width: width)
-        y = sparkline("Fan speed · last 30 min", values: history.map { ($0.date, $0.fan) },
-                      range: 0...(r?.fan?.max ?? 7200), reference: nil, color: Palette.fan,
-                      format: { Self.grouped($0) }, x: x, y: y, width: width)
+        if fanless {
+            y = sparkline("CPU load · last 30 min", values: history.map { ($0.date, $0.load) },
+                          range: 0...100, reference: nil, color: Palette.load,
+                          format: { "\(Int($0.rounded()))%" }, x: x, y: y, width: width)
+        } else {
+            y = sparkline("Fan speed · last 30 min", values: history.map { ($0.date, $0.fan) },
+                          range: 0...(r?.fan?.max ?? 7200), reference: nil, color: Palette.fan,
+                          format: { Self.grouped($0) }, x: x, y: y, width: width)
+        }
         y = rule(at: y, x: x, width: width)
 
         // Every sensor.
         let cells: [(String, String)] = [
-            ("CPU cores", Self.degrees(r?.cpuCores)), ("Palm rest", Self.degrees(r?.palmRest)),
-            ("CPU proximity", Self.degrees(r?.cpuProximity)), ("Battery", Self.degrees(r?.battery)),
-            ("GPU", Self.degrees(r?.gpu)), ("CPU load", r?.load.map { "\(Int($0.rounded()))%" } ?? "--"),
-            ("Chipset", Self.degrees(r?.chipset)), ("Power", r.map { $0.onAC ? "Charger" : "Battery" } ?? "--"),
-            ("CPU speed", r.map { $0.speedLimit < 100 ? "\($0.speedLimit)%" : "Full" } ?? "--"),
-            ("macOS thermal", r.map { ["Nominal", "Fair", "Serious", "Critical"][min(max($0.thermalState, 0), 3)] } ?? "--"),
+            ("Hottest core", Self.degrees(r?.cpuCores)), ("Palm rest", Self.degrees(r?.palmRest)),
+            ("GPU", Self.degrees(r?.gpu)), ("Battery", Self.degrees(r?.battery)),
+            r?.chipset != nil ? ("Chipset", Self.degrees(r?.chipset)) : ("SSD", Self.degrees(r?.ssd)),
+            ("CPU load", r?.load.map { "\(Int($0.rounded()))%" } ?? "--"),
+            ((r?.fans.count ?? 0) > 1 ? "Fans" : "Fan",
+             r.map(Self.fanSpeeds) ?? "--"),
+            ("Power", r.map { $0.onAC ? "Plugged in" : "Battery" } ?? "--"),
+            ("CPU speed", r.map(Self.cpuSpeed) ?? "--"),
+            ("Thermal", r.map { ["Nominal", "Fair", "Serious", "Critical"][min(max($0.thermalState, 0), 3)] } ?? "--"),
         ]
         let column = (width - 16) / 2
         for (i, cell) in cells.enumerated() {
@@ -124,7 +144,7 @@ final class DashboardView: NSView {
         text("Avg \(Self.degrees(today.averageCPU)) · \(peak)", in: NSRect(x: x, y: y, width: width, height: 16),
              size: 12, digits: true)
         y += 16
-        text("90°C+ for \(Self.duration(today.hotMinutes)) · CPU slowed \(Self.duration(today.throttledMinutes))",
+        text("\(Int(Thresholds.hot))°C+ for \(Self.duration(today.hotMinutes)) · CPU slowed \(Self.duration(today.throttledMinutes))",
              in: NSRect(x: x, y: y, width: width, height: 16), size: 11.5, color: .secondaryLabelColor, digits: true)
         y += Layout.today - 31
         y = rule(at: y, x: x, width: width)
@@ -239,6 +259,20 @@ final class DashboardView: NSView {
     }
 
     // MARK: - Formatting
+
+    /// Each fan's speed, or "Off" when they're all stopped.
+    static func fanSpeeds(_ r: Reading) -> String {
+        if r.fans.isEmpty { return "None" }
+        if r.fans.allSatisfy(\.isOff) { return "Off" }
+        return r.fans.map { $0.isOff ? "Off" : grouped($0.actual) }.joined(separator: " · ")
+    }
+
+    /// Full speed, Intel's speed cap, or how hard macOS is holding Apple silicon back.
+    static func cpuSpeed(_ r: Reading) -> String {
+        if r.speedLimit < 100 { return "\(r.speedLimit)%" }
+        if let p = r.pressure, p >= 1 { return "Limited" }
+        return "Full"
+    }
 
     static func degrees(_ value: Double?) -> String { value.map { "\(Int($0.rounded()))°C" } ?? "--" }
 

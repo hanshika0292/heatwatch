@@ -2,7 +2,8 @@ import Foundation
 import IOKit
 
 /// Read-only access to the System Management Controller, the chip that owns the
-/// temperature sensors and fan controller on Intel Macs. Reading needs no root.
+/// temperature sensors and fan controller (on Intel and Apple silicon Macs alike).
+/// Reading needs no root.
 final class SMC {
     private typealias Bytes = (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                                UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
@@ -32,6 +33,7 @@ final class SMC {
     private static let handleEvent: UInt32 = 2
     private static let readKey: UInt8 = 5
     private static let readKeyInfo: UInt8 = 9
+    private static let readKeyAtIndex: UInt8 = 8
 
     private var connection: io_connect_t = 0
     private var keyInfoCache: [UInt32: Param.KeyInfo?] = [:]
@@ -58,6 +60,22 @@ final class SMC {
         return Self.decode(bytes, type: info.dataType)
     }
 
+    /// Every key this SMC has (about 3,600 on an M5 Pro). That's thousands of
+    /// calls, a few milliseconds in all, so call it once and keep the result.
+    func allKeys() -> [String] {
+        guard let count = read("#KEY"), count > 0, count < 100_000 else { return [] }
+        return (0..<UInt32(count)).compactMap { index in
+            var input = Param()
+            input.command = Self.readKeyAtIndex
+            input.data32 = index
+            return call(input).map { Self.fourCC($0.key) }
+        }
+    }
+
+    private static func fourCC(_ code: UInt32) -> String {
+        String(bytes: [24, 16, 8, 0].map { UInt8((code >> $0) & 0xff) }, encoding: .ascii) ?? ""
+    }
+
     private func keyInfo(_ code: UInt32) -> Param.KeyInfo? {
         if let cached = keyInfoCache[code] { return cached }
         var input = Param()
@@ -78,7 +96,7 @@ final class SMC {
     }
 
     private static func decode(_ bytes: [UInt8], type: UInt32) -> Double? {
-        let name = String(bytes: [24, 16, 8, 0].map { UInt8((type >> $0) & 0xff) }, encoding: .ascii) ?? ""
+        let name = fourCC(type)
         let bigEndian = bytes.reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
         switch name {
         case "flt " where bytes.count == 4:
